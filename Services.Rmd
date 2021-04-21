@@ -1,0 +1,158 @@
+---
+title: "Services"
+author: "David Yang"
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+output:
+  html_document:  
+    keep_md: true
+    toc: true
+    toc_float: true
+    code_folding: hide
+    fig_height: 6
+    fig_width: 12
+    fig_align: 'center'
+---
+
+```{r, echo=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+```{r load_libraries, include=FALSE}
+library(pacman)
+library(tidyverse)
+pacman::p_load(tidyverse,readxl)
+pacman::p_load_current_gh("hathawayj/buildings")
+```
+
+```{r load_data}
+dat <- buildings0809 %>% 
+  inner_join(climate_zone_fips, by = c("FIPS.county","FIPS.state"))
+```
+
+## Prep Data Wrangling
+
+```{r}
+not_restaurants <- 
+  c("development","Food preperation center", "Food Services center","bakery",
+    "Grocery","conceession","Cafeteria", "lunchroom","school","facility"," hall ") %>% 
+  str_to_lower() %>% 
+  unlist() %>% 
+  str_trim() %>% 
+  str_flatten(collapse = "|")
+
+standalone_retail <- 
+  c("Wine","Spirits","Liquor","Convenience","drugstore","Flying J", "Rite Aid ",
+    "walgreens ","Love's Travel ") %>% 
+  str_to_lower() %>% 
+  unlist() %>% 
+  str_trim() %>% 
+  str_flatten(collapse = "|")
+
+full_service_type <- 
+  c("Ristorante","mexican","pizza ","steakhouse"," grill ","buffet","tavern",
+    " bar ","waffle","italian","steak house") %>% 
+  str_to_lower() %>% 
+  unlist() %>% 
+  str_trim() %>% 
+  str_flatten(collapse = "|")
+
+quick_service_type <- 
+  c("coffee"," java "," Donut ","Doughnut"," burger ","Ice Cream ","custard ",
+    "sandwich ","fast food "," bagel ") %>% 
+  str_to_lower() %>% 
+  unlist() %>% 
+  str_trim() %>% 
+  str_flatten(collapse = "|")
+
+quick_service_names <- 
+  restaurants$Restaurant[restaurants$Type %in% c("coffee","Ice Cream","Fast Food")] %>%
+  str_to_lower() %>% 
+  unlist() %>% 
+  str_trim() %>% 
+  str_flatten(collapse = "|")
+
+full_service_names <- 
+  restaurants$Restaurant[restaurants$Type %in% c("Pizza","Casual Dining","Fast Casual")] %>% 
+  str_to_lower() %>% 
+  unlist() %>% 
+  str_trim() %>% 
+  str_flatten(collapse = "|")
+
+CS6 <- dat %>%
+  filter(Type == "Food_Beverage_Service") %>% 
+  mutate(Food = case_when(ProjectTitle %>%
+                            str_to_lower() %>% 
+                            str_detect(not_restaurants) ~ "not restaurants",
+                          ProjectTitle %>% 
+                            str_to_lower() %>% 
+                            str_detect(standalone_retail) ~ "standalone retail",
+                          ProjectTitle %>% 
+                            str_to_lower() %>% 
+                            str_detect(full_service_type) ~ "full service type",
+                          ProjectTitle %>% 
+                            str_to_lower() %>% 
+                            str_detect(quick_service_type) ~ "quick service type",
+                          ProjectTitle %>% 
+                            str_to_lower() %>% 
+                            str_detect(quick_service_names) ~ "quick service type",
+                          ProjectTitle %>% 
+                            str_to_lower() %>% 
+                            str_detect(full_service_names) ~ "full service type",
+                          SqFt >= 4000 ~ "full service type",
+                          SqFt < 4000 ~ "quick service type",
+                          TRUE ~ "Other")) 
+Q1 <- CS6 %>% 
+  filter(Food %in% c("full service type", "quick service type")) %>%
+  group_by(County.x, Year, Food, Month) %>%
+  summarise(count = n()) %>%
+  group_by(County.x, Year, Food) %>% 
+  mutate(sum = cumsum(count))  %>% 
+  select(count, sum, County.x, Year, Month, Food) %>% 
+  unite("Time",Year,Month,sep = "")
+
+Q1$Time <- as.numeric(Q1$Time)
+```
+
+## Question 1 
+How did full-service restaurant construction compare to quick service restaurant construction across county and years?  
+How to make the graph replace the NA?
+
+```{r Visualization}
+Q1 %>% 
+  ggplot(aes(x = Time, y = sum, group = Food, color = Food)) +
+  facet_wrap(~County.x, nrow = 2) +
+  geom_line(aes(x = Time, y = sum)) +
+  geom_point(aes(x = Time, y = sum)) +
+  theme_bw()
+```
+
+## Question 2,3,4
+How did restaurant construction fare compare to the other commercial construction in Idaho?  
+Which county in Idaho spent the most on fast food construction each year?  
+In that county how did other commercial construction compare?
+
+#### Q2 Wrangling
+
+```{r tidy_data}
+Q2 <- CS6 %>% 
+  unite("Time", Year, Month,sep = "") %>% 
+  mutate(Class = case_when(
+    Food == "not restaurants" ~ "Other service", TRUE ~ "Restaurant")) %>% 
+  group_by(County.x, Food, Time, Class) %>%
+  mutate(count = n()) %>%
+  group_by(count, County.x, Food, Time, Class) %>% 
+  mutate(sum = cumsum(count))  %>% 
+  ungroup() %>% 
+  select(count, sum, County.x, Time, Food, Class)
+
+view(Q2)
+
+Q2 %>% 
+  ggplot(aes(x = Time, y = sum, group = Class, color = Class)) +
+  facet_wrap(~County.x, nrow = 2) +
+  geom_line(aes(x = Time, y = sum)) +
+  geom_point(aes(x = Time, y = sum)) +
+  theme_bw() 
+```
+
+
